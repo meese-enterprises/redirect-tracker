@@ -2,14 +2,13 @@
 
 import argparse
 import csv
+from urllib.parse import urlparse
 from collections import defaultdict
 from fake_useragent import UserAgent
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import threading
 import logging
 import signal
@@ -30,18 +29,20 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def setup_driver(chromedriver_path):
+def setup_driver(chromedriver_path, user_agent=None):
     """
-    Sets up the Selenium WebDriver with appropriate options, including a random user agent.
+    Sets up the Selenium WebDriver with appropriate options, including a random or custom user agent.
 
     Args:
         chromedriver_path (str): Path to the ChromeDriver executable.
+        user_agent (str): Custom user agent string. If None, a random user agent is used.
 
     Returns:
         WebDriver: Configured Selenium WebDriver instance.
     """
-    ua = UserAgent()
-    random_user_agent = ua.random
+    if not user_agent:
+        ua = UserAgent()
+        user_agent = ua.random
 
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -53,11 +54,11 @@ def setup_driver(chromedriver_path):
     chrome_options.add_argument("--disable-infobars")
     chrome_options.add_argument("--disable-software-rasterizer")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument(f"--user-agent={random_user_agent}")
+    chrome_options.add_argument(f"--user-agent={user_agent}")
 
     service = Service(executable_path=chromedriver_path)
     driver = webdriver.Chrome(service=service, options=chrome_options)
-    logger.info(f"Initialized WebDriver with User-Agent: {random_user_agent}")
+    logger.info(f"Initialized WebDriver with User-Agent: {user_agent}")
     return driver
 
 
@@ -72,36 +73,40 @@ def save_html_for_debugging(driver, current_url, output_dir):
     """
     try:
         html_content = driver.page_source
-        safe_filename = current_url.replace("://", "_").replace("/", "_")
-        file_path = os.path.join(output_dir, f"{safe_filename}.html")
-        with open(file_path, "w", encoding="utf-8") as file:
-            file.write(html_content)
-        logger.info(f"Saved HTML content for {current_url} to {file_path}")
+        domain = urlparse(current_url).netloc
+        file_path = os.path.join(output_dir, f"{domain}.html")
+        if not os.path.exists(file_path):
+            with open(file_path, "w", encoding="utf-8") as file:
+                file.write(html_content)
+            logger.info(f"Saved HTML content for {current_url} to {file_path}")
     except Exception as e:
         logger.error(f"Failed to save HTML for {current_url}: {e}")
 
 
-def update_csv_file(results, output_file):
+def load_existing_results(output_file):
     """
-    Updates the CSV file with the latest redirect chain data.
-    *TODO*: This is inefficient, but I don't know a better way to update the count in real-time.
+    Loads existing results from a CSV file to resume tracking.
 
     Args:
-        results (dict): Dictionary containing the redirect chains and their occurrences.
         output_file (str): Path to the output CSV file.
+
+    Returns:
+        dict: Dictionary of existing redirect chains and their occurrences.
     """
-    try:
-        with open(output_file, "w", newline="") as csvfile:
-            csvwriter = csv.writer(csvfile)
-            csvwriter.writerow(["Redirect Chain", "Occurrences"])
-            for chain, count in results.items():
-                csvwriter.writerow([" -> ".join(chain), count])
-        logger.debug(f"CSV file updated successfully: {output_file}")
-    except Exception as e:
-        logger.error(f"Failed to update CSV file: {e}")
+    results = defaultdict(int)
+    if os.path.exists(output_file):
+        with open(output_file, "r", newline="") as csvfile:
+            csvreader = csv.reader(csvfile)
+            next(csvreader, None)
+            for row in csvreader:
+                chain = tuple(row[0].split(" -> "))
+                count = int(row[1])
+                results[chain] = count
+        logger.info(f"Loaded {len(results)} chains from {output_file}")
+    return results
 
 
-def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, output_dir):
+def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, output_dir, collect_html, user_agent, wait_time):
     """
     Fetches redirect chains continuously until the duplicate threshold is reached.
 
@@ -112,13 +117,16 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
         chromedriver_path (str): Path to the ChromeDriver executable.
         output_file (str): Path to the output CSV file.
         output_dir (str): Directory to save HTML files for debugging.
+        collect_html (bool): Whether to save HTML files for debugging.
+        user_agent (str): Custom user agent string. If None, a random user agent is used.
+        wait_time (int): Time to wait for redirects to complete.
     """
     global duplicate_count, shutdown_flag
 
     logger.debug(f"Starting fetch_redirect_chain with URL: {url}")
 
     while not shutdown_flag:
-        driver = setup_driver(chromedriver_path)
+        driver = setup_driver(chromedriver_path, user_agent)
         try:
             redirect_chain = []
             current_url = url
@@ -140,18 +148,19 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
             while True:
                 try:
                     # Wait for the URL to change
-                    WebDriverWait(driver, 5).until(lambda d: d.execute_script("return window.location.href") != current_url)
+                    WebDriverWait(driver, wait_time).until(lambda d: d.execute_script("return window.location.href") != current_url)
                     current_url = driver.execute_script("return window.location.href")
                     logger.info(f"Redirected to: {current_url}")
                     redirect_chain.append(current_url)
                     driver.get(current_url)
                 except:
                     logger.debug("No further redirects detected.")
-                    # Save HTML content for debugging, only for the first occurrence
-                    chain_tuple = tuple(redirect_chain)
-                    with lock:
-                        if chain_tuple not in results:
-                            save_html_for_debugging(driver, current_url, output_dir)
+                    # Save HTML content, only for the first occurrence of a domain
+                    if collect_html:
+                        chain_tuple = tuple(redirect_chain)
+                        with lock:
+                            if chain_tuple not in results:
+                                save_html_for_debugging(driver, current_url, output_dir)
                     break
 
             # Convert the redirect chain to a tuple
@@ -161,21 +170,27 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
                 if chain_tuple in results:
                     results[chain_tuple] += 1
                     logger.debug(f"Incrementing count for chain: {chain_tuple}")
-                    update_csv_file(results, output_file)
                     with duplicate_lock:
                         duplicate_count += 1
                 else:
                     results[chain_tuple] = 1
                     logger.info(f"Adding new chain: {chain_tuple}")
-                    update_csv_file(results, output_file)
                     with duplicate_lock:
                         duplicate_count = 0
 
-            # Stop execution if duplicate count reaches 100
-            with duplicate_lock:
-                if duplicate_count >= 100:
-                    shutdown_flag = True
-                    break
+                # Update CSV file
+                with open(output_file, "w", newline="") as csvfile:
+                    csvwriter = csv.writer(csvfile)
+                    csvwriter.writerow(["Redirect Chain", "Occurrences"])
+                    for chain, count in results.items():
+                        csvwriter.writerow([" -> ".join(chain), count])
+
+                # Stop if 100 duplicate chains are reached
+                with duplicate_lock:
+                    if duplicate_count >= 100:
+                        shutdown_flag = True
+                        logger.info("100 duplicate chains observed. Stopping.")
+                        break
 
         except Exception as e:
             logger.error(f"Exception occurred in fetch_redirect_chain: {e}")
@@ -196,7 +211,7 @@ def signal_handler(sig, frame):
     shutdown_flag = True
 
 
-def main(url, num_threads, output_file, chromedriver_path, log_level, output_dir):
+def main(url, num_threads, output_file, chromedriver_path, log_level, output_dir, collect_html, user_agent, resume, wait_time):
     """
     Main function to run multiple threads fetching redirect chains.
 
@@ -207,29 +222,29 @@ def main(url, num_threads, output_file, chromedriver_path, log_level, output_dir
         chromedriver_path (str): Path to the ChromeDriver executable.
         log_level (str): Logging level as a string.
         output_dir (str): Directory to save HTML files for debugging.
+        collect_html (bool): Whether to save HTML files for debugging.
+        user_agent (str): Custom user agent string. If None, a random user agent is used.
+        resume (bool): Whether to resume from an existing output file.
+        wait_time (int): Time to wait for redirects to complete.
     """
     global shutdown_flag
 
     # Set the logging level
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
-    results = defaultdict(int)
+    # Load existing results if resuming
+    results = load_existing_results(output_file) if resume else defaultdict(int)
     lock = threading.Lock()
     threads = []
 
     # Handle CTRL+C
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Open the file in append mode and write the header
-    with open(output_file, "w", newline="") as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(["Redirect Chain", "Occurrences"])
-
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
     for _ in range(num_threads):
-        thread = threading.Thread(target=fetch_redirect_chain, args=(url, results, lock, chromedriver_path, output_file, output_dir))
+        thread = threading.Thread(target=fetch_redirect_chain, args=(url, results, lock, chromedriver_path, output_file, output_dir, collect_html, user_agent, wait_time))
         thread.start()
         threads.append(thread)
 
@@ -247,6 +262,10 @@ if __name__ == "__main__":
     parser.add_argument("--chromedriver", type=str, required=True, help="Path to the ChromeDriver executable.")
     parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="OFF", help="Set the logging level (default: OFF).")
     parser.add_argument("--output-dir", type=str, default="html_collection", help="Directory to save HTML files for debugging or further analysis.")
+    parser.add_argument("--collect-html", action="store_true", help="Enable saving HTML files for debugging.")
+    parser.add_argument("--user-agent", type=str, default=None, help="Custom user agent string. If not set, a random user agent is used on each request.")
+    parser.add_argument("--resume", action="store_true", help="Resume from an existing output file.")
+    parser.add_argument("--wait-time", type=int, default=5, help="Custom wait time (in seconds) for redirects (default: 5).")
     args = parser.parse_args()
 
-    main(args.url, args.threads, args.output, args.chromedriver, args.log_level, args.output_dir)
+    main(args.url, args.threads, args.output, args.chromedriver, args.log_level, args.output_dir, args.collect_html, args.user_agent, args.resume, args.wait_time)
