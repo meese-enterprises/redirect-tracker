@@ -1,3 +1,4 @@
 chromedriver*
 venv/
 *.csv
+html_collection/
