@@ -7,6 +7,11 @@ This tool analyzes the redirect chains of a given URL, capturing all unique redi
 - Executes JavaScript to capture client-side redirects.
 - Runs multiple threads to explore various redirect paths.
 - Stores unique redirect chains in a structured CSV format.
+- Supports resuming from an existing CSV file to continue analysis.
+- Allows custom user-agent strings for testing, or defaults to random user-agent rotation.
+- Saves HTML files of pages for debugging purposes (optional).
+- Terminates execution after detecting 100 duplicate redirect chains.
+- Allows a custom wait time for redirects to complete.
 
 ## Prerequisites
 
@@ -18,22 +23,22 @@ This tool analyzes the redirect chains of a given URL, capturing all unique redi
 
 1. **Clone the Repository**:
 
-   ```bash
-   git clone https://github.com/yourusername/redirect-chain-analyzer.git
-   cd redirect-chain-analyzer
+   ```sh
+   git clone https://github.com/meese-enterprises/redirect-tracker.git
+   cd redirect-tracker
    ```
 
 2. **Set Up a Virtual Environment** (Optional but recommended):
 
-   ```bash
+   ```sh
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\\Scripts\\activate
    ```
 
 3. **Install Required Python Packages**:
 
-   ```bash
-   pip install -r requirements.txt
+   ```sh
+   pip3 install -r requirements.txt
    ```
 
 4. **Install ChromeDriver**:
@@ -55,7 +60,7 @@ This tool analyzes the redirect chains of a given URL, capturing all unique redi
 
 ## Usage
 
-```bash
+```sh
 python3 redirect_follower.py --url <URL> --chromedriver <path_to_chromedriver> [--threads <number_of_threads>] [--output <output_file>]
 ```
 
@@ -63,18 +68,22 @@ python3 redirect_follower.py --url <URL> --chromedriver <path_to_chromedriver> [
 - `--chromedriver`: The path to the ChromeDriver executable. This argument is required.
 - `--threads`: (Optional) Number of concurrent threads to use. Default is 10.
 - `--output`: (Optional) Name of the output CSV file. Default is `redirect_chains.csv`.
+- `--collect-html`: (Optional) Enable saving HTML files for debugging.
+- `--user-agent`: (Optional) Specify a custom user-agent string. Defaults to random user-agent rotation if not set.
+- `--resume`: (Optional) Resume tracking from an existing CSV file.
+- `--wait-time`: (Optional) Specify the wait time (in seconds) for redirects. Default is 5 seconds.
 
 **Example**:
 
-```bash
-python3 redirect_follower.py --url https://example.com --chromedriver ./chromedriver-linux64/chromedriver --threads 10 --output results.csv
+```sh
+python3 redirect_follower.py --url https://example.com --chromedriver ./chromedriver-linux64/chromedriver --threads 10 --output results.csv --collect-html --user-agent "Custom User Agent String" --resume --wait-time 15
 ```
 
 ## Output
 
 The script generates a CSV file with the following columns:
 
-- `Redirect Chain`: A sequence of URLs representing the redirect path, separated by ' -> '.
+- `Redirect Chain`: A sequence of URLs representing the redirect path, separated by ` -> `.
 - `Occurrences`: The number of times each unique redirect chain was encountered.
 
 ## Notes
