@@ -86,6 +86,16 @@ The script generates a CSV file with the following columns:
 - `Redirect Chain`: A sequence of URLs representing the redirect path, separated by ` -> `.
 - `Occurrences`: The number of times each unique redirect chain was encountered.
 
+## Unique URL Extraction
+
+```sh
+python3 extract_urls.py --input <input_file> --output <output_file> [--fang]
+```
+
+- `--input`: The path to the input CSV file containing redirect chains.
+- `--output`: The path to the output text file. Default is `unique_urls.txt`.
+- `--fang`: (Optional) Defang URLs by adding square brackets around the period before the TLD.
+
 ## Notes
 
 - **Error Handling**: The script handles exceptions during URL fetching and continues processing.

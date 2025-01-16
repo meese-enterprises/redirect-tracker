@@ -1,4 +1,5 @@
+html_collection*
 chromedriver*
 venv/
 *.csv
-html_collection*
+*.txt
