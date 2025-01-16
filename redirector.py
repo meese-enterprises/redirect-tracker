@@ -126,7 +126,13 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
     logger.debug(f"Starting fetch_redirect_chain with URL: {url}")
 
     while not shutdown_flag:
-        driver = setup_driver(chromedriver_path, user_agent)
+        try:
+            # Initialize the driver with error handling
+            driver = setup_driver(chromedriver_path, user_agent)
+        except Exception as e:
+            logger.error(f"Error initializing WebDriver: {e}")
+            break
+
         try:
             redirect_chain = []
             current_url = url
@@ -145,7 +151,7 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
                 logger.error(f"Failed to navigate to {current_url}: {e}")
                 break
 
-            while True:
+            while not shutdown_flag:
                 try:
                     # Wait for the URL to change
                     WebDriverWait(driver, wait_time).until(lambda d: d.execute_script("return window.location.href") != current_url)
@@ -153,8 +159,8 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
                     logger.info(f"Redirected to: {current_url}")
                     redirect_chain.append(current_url)
                     driver.get(current_url)
-                except:
-                    logger.debug("No further redirects detected.")
+                except Exception as e:
+                    logger.debug(f"No further redirects detected: {e}")
                     # Save HTML content, only for the first occurrence of a domain
                     if collect_html:
                         chain_tuple = tuple(redirect_chain)
@@ -193,9 +199,12 @@ def fetch_redirect_chain(url, results, lock, chromedriver_path, output_file, out
                         break
 
         except Exception as e:
-            logger.error(f"Exception occurred in fetch_redirect_chain: {e}")
+            logger.error(f"Error in fetch_redirect_chain: {e}")
         finally:
-            driver.quit()
+            try:
+                driver.quit()
+            except Exception as e:
+                logger.error(f"Error closing WebDriver: {e}")
 
 
 def signal_handler(sig, frame):
