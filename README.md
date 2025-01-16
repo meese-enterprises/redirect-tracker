@@ -89,12 +89,13 @@ The script generates a CSV file with the following columns:
 ## Unique URL Extraction
 
 ```sh
-python3 extract_urls.py --input <input_file> --output <output_file> [--fang]
+python3 extract_urls.py --input <input_file> --output <output_file> [--fang] [--ignore-file <ignore_file>]
 ```
 
 - `--input`: The path to the input CSV file containing redirect chains.
 - `--output`: The path to the output text file. Default is `unique_urls.txt`.
 - `--fang`: (Optional) Defang URLs by adding square brackets around the period before the TLD.
+- `--ignore-file`: (Optional) The path to the text file containing domains to ignore URLs from. Default is `ignorelist.txt`.
 
 ## Notes
 
